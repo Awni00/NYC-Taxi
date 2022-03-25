@@ -68,6 +68,7 @@ def calc_bearing(lat1, lon1, lat2, lon2):
 
 
 def load_train_data(path):
+    '''loads and preprocesses training data, creating additional features.'''
 
     # read dataframe
     train_data = pd.read_csv(path, index_col=0)
@@ -105,6 +106,7 @@ def load_train_data(path):
     return train_data
 
 def load_test_data(path):
+    '''loads and preprocesses testing data, creating additional features.'''
 
     # read dataframe
     test_data = pd.read_csv(path, index_col=0)
