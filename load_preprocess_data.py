@@ -2,12 +2,11 @@ import pandas as pd
 import numpy as np
 
 
-def calc_haversine_distance(lat1, lon1, lat2, lon2):
+def calc_spherical_distance(lat1, lon1, lat2, lon2):
     '''
     Calculate the distance between two points in lattitude-longitude coordinates.
-
-    Uses Haversine distance.
     '''
+
     from math import sin, cos, sqrt, atan2, radians
 
     #  radius of earth in km
@@ -30,44 +29,43 @@ def calc_haversine_distance(lat1, lon1, lat2, lon2):
 
     return distance
 
-def manhattan_dist(lat1, lon1, lat2, lon2):
-    # code based on https://medium.com/@simplyjk/why-manhattan-distance-formula-doesnt-apply-to-manhattan-7db0ebb1c5f6
-    # by Jayakrishnan (JK) Vijayaraghavan
+def calc_manhattan_distance(lat1, lon1, lat2, lon2):
+    '''calculate manhattan distance between two points on a spher'''
 
-    # Pickup coordinates
-    p = np.expand_dims(np.array([lat1, lon1]), axis=0)
+    pickup = (lat1, lon1)
+    dropoff_a = (lat1, lon2)
+    dropoff_b = (lat2, lon1)
 
-    # Dropoff coordinates
-    d = np.expand_dims(np.array([lat2, lon2]), axis=0)
+    distance_a = calc_spherical_distance(*pickup, *dropoff_a)
+    distance_b = calc_spherical_distance(*pickup, *dropoff_b)
 
-    # inclination of manhattan w.r.t. geographic north
-    theta1 = np.radians(-28.904)
-    theta2 = np.radians(28.904)
+    manhattan_distance = distance_a + distance_b
 
-    ## Rotation matrix
-    R1 = np.array([[np.cos(theta1), np.sin(theta1)],
-                    [-np.sin(theta1), np.cos(theta1)]]
-                    )
-    R2 = np.array([[np.cos(theta2), np.sin(theta2)],
-                    [-np.sin(theta2), np.cos(theta2)]]
-                    )
+    return manhattan_distance
 
-    # Rotate Pickup and Dropoff coordinates by -29 degress in World2
-    pT = R1 @ p.T
-    dT = R1 @ d.T
+def calc_bearing(lat1, lon1, lat2, lon2):
+    '''calculate the direction from pickup to dropoff'''
 
-    # Coordinates of Hinge point in the rotated world
-    vT = np.stack((pT[0,:], dT[1,:]))
+    from math import (
+        degrees, radians,
+        sin, cos, atan2
+    )
 
-    # Coordinates of Hinge point in the real world
-    v = R2 @ vT
+    lon1, lat1, lon2, lat2 = (radians(coord) for coord in (lon1, lat1, lon2, lat2))
 
-    ax1_dist = calc_haversine_distance(p.T[0], p.T[1], v[0], v[1])
-    ax2_dist = calc_haversine_distance(v[0], v[1], d.T[0], d.T[1])
+    dlat = (lat2 - lat1)
+    dlon = (lon2 - lon1)
+    numerator = sin(dlon) * cos(lat2)
+    denominator = (
+        cos(lat1) * sin(lat2) -
+        (sin(lat1) * cos(lat2) * cos(dlon))
+    )
 
-    manhattan_dist = ax1_dist + ax2_dist
+    theta = atan2(numerator, denominator)
+    theta_deg = (degrees(theta) + 360) % 360
 
-    return manhattan_dist
+    return theta_deg
+
 
 def load_train_data(path):
 
@@ -84,14 +82,19 @@ def load_train_data(path):
     train_data.drop(columns=['pickup_date', 'pickup_time'], inplace=True)
 
     # calculate distances using longitude-latitude coords of pickup, dropoff
-    distances = [calc_haversine_distance(x.pickup_latitude, x.pickup_longitude, x.dropoff_latitude, x.dropoff_longitude)
+    distances = [calc_spherical_distance(x.pickup_latitude, x.pickup_longitude, x.dropoff_latitude, x.dropoff_longitude)
                     for x in train_data.itertuples()]
     train_data.insert(2, 'distance_km', distances)
 
     # calculate l1 (manhattan) distance using longitude-latitude coords of pickup, dropoff
-    manhattan_distances = [manhattan_dist(x.pickup_latitude, x.pickup_longitude, x.dropoff_latitude, x.dropoff_longitude)
+    manhattan_distances = [calc_manhattan_distance(x.pickup_latitude, x.pickup_longitude, x.dropoff_latitude, x.dropoff_longitude)
                 for x in train_data.itertuples()]
     train_data.insert(3, 'l1_distance_km', manhattan_distances)
+
+    bearing = [calc_bearing(x.pickup_latitude, x.pickup_longitude, x.dropoff_latitude, x.dropoff_longitude)
+                for x in train_data.itertuples()]
+    train_data.insert(4, 'bearing', bearing)
+
 
     # add dayofweek feature
     train_data.insert(1, 'dayofweek', train_data['pickup_datetime'].apply(lambda x: x.dayofweek))
@@ -113,14 +116,18 @@ def load_test_data(path):
     test_data.drop(columns=['pickup_date', 'pickup_time'], inplace=True)
 
     # calculate distances using longitude-lattitude coords of pickup, dropoff
-    distances = [calc_haversine_distance(x.pickup_latitude, x.pickup_longitude, x.dropoff_latitude, x.dropoff_longitude)
+    distances = [calc_spherical_distance(x.pickup_latitude, x.pickup_longitude, x.dropoff_latitude, x.dropoff_longitude)
                     for x in test_data.itertuples()]
     test_data.insert(2, 'distance_km', distances)
 
     # calculate l1 (manhattan) distance using longitude-latitude coords of pickup, dropoff
-    manhattan_distances = [manhattan_dist(x.pickup_latitude, x.pickup_longitude, x.dropoff_latitude, x.dropoff_longitude)
+    manhattan_distances = [calc_manhattan_distance(x.pickup_latitude, x.pickup_longitude, x.dropoff_latitude, x.dropoff_longitude)
                 for x in test_data.itertuples()]
     test_data.insert(3, 'l1_distance_km', manhattan_distances)
+
+    bearing = [calc_bearing(x.pickup_latitude, x.pickup_longitude, x.dropoff_latitude, x.dropoff_longitude)
+                for x in test_data.itertuples()]
+    test_data.insert(4, 'bearing', bearing)
 
     # add dayofweek feature
     test_data.insert(1, 'dayofweek', test_data['pickup_datetime'].apply(lambda x: x.dayofweek))
